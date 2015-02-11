@@ -1,6 +1,10 @@
 package com.example.roy.nfc_test;
 
+import android.app.AlertDialog;
+import android.app.PendingIntent;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.nfc.NdefMessage;
 import android.nfc.NdefRecord;
 import android.nfc.NfcAdapter;
@@ -17,12 +21,28 @@ import android.widget.TextView;
 public class MainActivity extends ActionBarActivity {
 
     TextView textView;
+    PendingIntent gNfcPendingIntent;
+    IntentFilter[] gNdefExchangeFilters;
+    NfcAdapter gNfcAdapter;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        gNfcAdapter = NfcAdapter.getDefaultAdapter(this);
         setContentView(R.layout.activity_main);
 
         textView = (TextView)findViewById(R.id.textView);
+
+        // Handle all of our received NFC intents in this activity.
+        gNfcPendingIntent = PendingIntent.getActivity(this, 0,
+                new Intent(this, getClass()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), 0);
+
+        // Intent filters for reading a note from a tag or exchanging over p2p.
+        IntentFilter ndefDetected = new IntentFilter(NfcAdapter.ACTION_NDEF_DISCOVERED);
+        try {
+            ndefDetected.addDataType("text/plain");
+        } catch (IntentFilter.MalformedMimeTypeException e) { }
+        gNdefExchangeFilters = new IntentFilter[] { ndefDetected };
 
     }
 
@@ -49,6 +69,7 @@ public class MainActivity extends ActionBarActivity {
         return super.onOptionsItemSelected(item);
     }
 
+
     @Override
     protected void onResume()
     {
@@ -65,8 +86,42 @@ public class MainActivity extends ActionBarActivity {
             setIntent(new Intent());
         }
 
+        enableNdefExchangeMode();
     }
 
+    @Override
+    protected void onNewIntent(Intent intent) {
+        // 覆寫該Intent用於補捉如果有新的Intent進入時，可以觸發的事件任務。
+        // NDEF exchange mode
+        if (NfcAdapter.ACTION_NDEF_DISCOVERED.equals(intent.getAction())) {
+            NdefMessage[] msgs = getNdefMessages(intent);
+            promptForContent(msgs[0]);
+        }
+    }
+
+
+    private void promptForContent(final NdefMessage msg) {
+        new AlertDialog.Builder(this).setTitle("Replace current content?")
+                .setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface arg0, int arg1) {
+                        String body = new String(msg.getRecords()[0].getPayload());
+                        setNoteBody(body);
+                    }
+                })
+                .setNegativeButton("No", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface arg0, int arg1) {
+
+                    }
+                }).show();
+    }
+
+    private void enableNdefExchangeMode() {
+        // 讓NfcAdapter啟動能夠在前景模式下進行intent filter的dispatch。
+        gNfcAdapter.enableForegroundDispatch(
+                this, gNfcPendingIntent, gNdefExchangeFilters, null);
+    }
 
     NdefMessage[] getNdefMessages(Intent intent) {
         // Parse the intent
